@@ -55,11 +55,11 @@ int encode_blob_write(void *const data, const char *const buf, const size_t len)
 }
 
 /// Msgpack callback for writing to readfile()-style list
-int encode_list_write(void *const data, const char *const buf, const size_t len)
+void encode_list_write(void *const data, const char *const buf, const size_t len)
   FUNC_ATTR_NONNULL_ARG(1)
 {
   if (len == 0) {
-    return 0;
+    return;
   }
   list_T *const list = (list_T *)data;
   const char *const end = buf + len;
@@ -97,7 +97,6 @@ int encode_list_write(void *const data, const char *const buf, const size_t len)
   if (line_end == end) {
     tv_list_append_allocated_string(list, NULL);
   }
-  return 0;
 }
 
 /// Abort conversion to string after a recursion error.
@@ -918,7 +917,7 @@ char *encode_tv2json(typval_T *tv, size_t *len)
 }
 
 #define TYPVAL_ENCODE_CONV_STRING(tv, buf, len) \
-  mpack_bin(buf, (len), packer); \
+  mpack_bin(cbuf_as_string(buf, (len)), packer); \
 
 #define TYPVAL_ENCODE_CONV_STR_STRING(tv, buf, len) \
   mpack_str(cbuf_as_string(buf, (len)), packer); \
@@ -927,7 +926,7 @@ char *encode_tv2json(typval_T *tv, size_t *len)
   mpack_ext(buf, (len), (int8_t)(type), packer); \
 
 #define TYPVAL_ENCODE_CONV_BLOB(tv, blob, len) \
-  mpack_bin((blob) ? (blob)->bv_ga.ga_data : NULL, (size_t)(len), packer); \
+  mpack_bin(cbuf_as_string((blob) ? (blob)->bv_ga.ga_data : NULL, (size_t)(len)), packer);
 
 #define TYPVAL_ENCODE_CONV_NUMBER(tv, num) \
   mpack_integer(&packer->ptr, (Integer)(num))
