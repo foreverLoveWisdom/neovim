@@ -1,9 +1,9 @@
 // Terminal UI functions. Invoked (by ui_client.c) on the UI process.
 
 #include <assert.h>
+#include <inttypes.h>
 #include <signal.h>
 #include <stdbool.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,8 +22,6 @@
 #include "nvim/event/stream.h"
 #include "nvim/globals.h"
 #include "nvim/grid.h"
-#include "nvim/grid_defs.h"
-#include "nvim/highlight.h"
 #include "nvim/highlight_defs.h"
 #include "nvim/log.h"
 #include "nvim/macros_defs.h"
@@ -298,7 +296,10 @@ void tui_set_key_encoding(TUIData *tui)
 {
   switch (tui->input.key_encoding) {
   case kKeyEncodingKitty:
-    out(tui, S_LEN("\x1b[>1u"));
+    // Progressive enhancement flags:
+    //   0b01   (1) Disambiguate escape codes
+    //   0b10   (2) Report event types
+    out(tui, S_LEN("\x1b[>3u"));
     break;
   case kKeyEncodingXterm:
     out(tui, S_LEN("\x1b[>4;2m"));
@@ -313,7 +314,7 @@ static void tui_reset_key_encoding(TUIData *tui)
 {
   switch (tui->input.key_encoding) {
   case kKeyEncodingKitty:
-    out(tui, S_LEN("\x1b[<1u"));
+    out(tui, S_LEN("\x1b[<u"));
     break;
   case kKeyEncodingXterm:
     out(tui, S_LEN("\x1b[>4;0m"));

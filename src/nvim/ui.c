@@ -6,7 +6,6 @@
 #include <string.h>
 #include <uv.h>
 
-#include "klib/kvec.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/api/private/validate.h"
 #include "nvim/api/ui.h"
@@ -718,10 +717,10 @@ void ui_call_event(char *name, bool fast, Array args)
   bool handled = false;
   UIEventCallback *event_cb;
 
-  // Prompt messages should be shown immediately so must be safe
+  // Return prompt is still a non-fast event, other prompt messages are
+  // followed by a "cmdline_show" event.
   if (strcmp(name, "msg_show") == 0) {
-    char *kind = args.items[0].data.string.data;
-    fast = !kind || ((strncmp(kind, "confirm", 7) != 0 && strstr(kind, "_prompt") == NULL));
+    fast = !strequal(args.items[0].data.string.data, "return_prompt");
   }
 
   map_foreach(&ui_event_cbs, ui_event_ns_id, event_cb, {

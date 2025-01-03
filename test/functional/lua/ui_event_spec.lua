@@ -261,47 +261,12 @@ describe('vim.ui_attach', function()
         lled in a fast event context            |
         {1:~                                       }|
       ]],
+      cmdline = { { abort = false } },
       messages = {
         {
           content = { { 'E122: Function Foo already exists, add ! to replace it', 9, 6 } },
+          history = true,
           kind = 'emsg',
-        },
-      },
-    })
-    -- No fast context for prompt message kinds
-    feed(':%s/Function/Replacement/c<cr>')
-    screen:expect({
-      grid = [[
-        ^E122: {10:Function} Foo already exists, add !|
-         to replace it                          |
-        replace with Replacement (y/n/a/q/l/^E/^|
-        Y)?                                     |
-        {1:~                                       }|
-      ]],
-      messages = {
-        {
-          content = { { 'replace with Replacement (y/n/a/q/l/^E/^Y)?', 6, 18 } },
-          kind = 'confirm_sub',
-        },
-      },
-    })
-    feed('<esc>:call inputlist(["Select:", "One", "Two"])<cr>')
-    screen:expect({
-      grid = [[
-        E122: {10:Function} Foo already exists, add !|
-         to replace it                          |
-        Type number and <Enter> or click with th|
-        e mouse (q or empty cancels):           |
-        {1:^~                                       }|
-      ]],
-      messages = {
-        {
-          content = { { 'Select:\nOne\nTwo\n' } },
-          kind = 'list_cmd',
-        },
-        {
-          content = { { 'Type number and <Enter> or click with the mouse (q or empty cancels): ' } },
-          kind = 'number_prompt',
         },
       },
     })
@@ -359,6 +324,7 @@ describe('vim.ui_attach', function()
         {9:back from ns: 1.}                        |
         {100:Press ENTER or type command to continue}^ |
       ]],
+      cmdline = { { abort = false } },
     })
     feed('<cr>')
     -- Also when scheduled
@@ -378,6 +344,7 @@ describe('vim.ui_attach', function()
               6,
             },
           },
+          history = true,
           kind = 'lua_error',
         },
         {
@@ -388,10 +355,12 @@ describe('vim.ui_attach', function()
               6,
             },
           },
+          history = true,
           kind = 'lua_error',
         },
         {
           content = { { 'Press ENTER or type command to continue', 100, 18 } },
+          history = false,
           kind = 'return_prompt',
         },
       },

@@ -14,7 +14,6 @@
 #include "nvim/api/private/defs.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/api/vim.h"
-#include "nvim/arabic.h"
 #include "nvim/ascii_defs.h"
 #include "nvim/autocmd.h"
 #include "nvim/autocmd_defs.h"
@@ -43,7 +42,6 @@
 #include "nvim/getchar.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
-#include "nvim/highlight.h"
 #include "nvim/highlight_defs.h"
 #include "nvim/highlight_group.h"
 #include "nvim/keycodes.h"
@@ -64,7 +62,6 @@
 #include "nvim/option.h"
 #include "nvim/option_defs.h"
 #include "nvim/option_vars.h"
-#include "nvim/optionstr.h"
 #include "nvim/os/input.h"
 #include "nvim/os/os.h"
 #include "nvim/path.h"
@@ -123,7 +120,7 @@ typedef struct {
   int indent;
   int c;
   bool gotesc;                          // true when <ESC> just typed
-  int do_abbr;                          // when true check for abbr.
+  bool do_abbr;                         // when true check for abbr.
   char *lookfor;                        // string to match
   int lookforlen;
   int hiscnt;                           // current history line in use
@@ -131,17 +128,17 @@ typedef struct {
                                         // to jump to next match
   int histype;                          // history type to be used
   incsearch_state_T is_state;
-  int did_wild_list;                    // did wild_list() recently
+  bool did_wild_list;                   // did wild_list() recently
   int wim_index;                        // index in wim_flags[]
   int save_msg_scroll;
   int save_State;                       // remember State when called
   int prev_cmdpos;
   char *save_p_icm;
-  int some_key_typed;                   // one of the keys was typed
+  bool some_key_typed;                  // one of the keys was typed
   // mouse drag and release events are ignored, unless they are
   // preceded with a mouse down event
-  int ignore_drag_release;
-  int break_ctrl_c;
+  bool ignore_drag_release;
+  bool break_ctrl_c;
   expand_T xpc;
   OptInt *b_im_ptr;
   buf_T *b_im_ptr_buf;  ///< buffer where b_im_ptr is valid
@@ -956,7 +953,7 @@ theend:
   char *p = ccline.cmdbuff;
 
   if (ui_has(kUICmdline)) {
-    ui_call_cmdline_hide(ccline.level);
+    ui_call_cmdline_hide(ccline.level, s->gotesc);
     msg_ext_clear_later();
   }
   if (!cmd_silent) {
@@ -1851,6 +1848,12 @@ static int command_line_browse_history(CommandLineState *s)
 
 static int command_line_handle_key(CommandLineState *s)
 {
+  // For one key prompt, avoid putting ESC and Ctrl_C onto cmdline.
+  // For all other keys, just put onto cmdline and exit.
+  if (ccline.one_key && s->c != ESC && s->c != Ctrl_C) {
+    goto end;
+  }
+
   // Big switch for a typed command line character.
   switch (s->c) {
   case K_BS:
@@ -2001,6 +2004,12 @@ static int command_line_handle_key(CommandLineState *s)
     }
     FALLTHROUGH;
   case K_LEFTMOUSE:
+    // Return on left click above number prompt
+    if (ccline.mouse_used && mouse_row < cmdline_row) {
+      *ccline.mouse_used = true;
+      return 0;
+    }
+    FALLTHROUGH;
   case K_RIGHTMOUSE:
     command_line_left_right_mouse(s);
     return command_line_not_changed(s);
@@ -2158,6 +2167,14 @@ static int command_line_handle_key(CommandLineState *s)
     }
     return command_line_not_changed(s);
 
+  case 'q':
+    // Number prompts use the mouse and return on 'q' press
+    if (ccline.mouse_used) {
+      *ccline.cmdbuff = NUL;
+      return 0;
+    }
+    FALLTHROUGH;
+
   default:
     // Normal character with no special meaning.  Just set mod_mask
     // to 0x0 so that typing Shift-Space in the GUI doesn't enter
@@ -2178,6 +2195,7 @@ static int command_line_handle_key(CommandLineState *s)
     return command_line_changed(s);
   }
 
+end:
   // put the character in the command line
   if (IS_SPECIAL(s->c) || mod_mask != 0) {
     put_on_cmdline(get_special_key_name(s->c, mod_mask), -1, true);
@@ -2186,7 +2204,7 @@ static int command_line_handle_key(CommandLineState *s)
     IObuff[j] = NUL;                // exclude composing chars
     put_on_cmdline(IObuff, j, true);
   }
-  return command_line_changed(s);
+  return ccline.one_key ? 0 : command_line_changed(s);
 }
 
 static int command_line_not_changed(CommandLineState *s)
@@ -2724,8 +2742,11 @@ static void abandon_cmdline(void)
   if (msg_scrolled == 0) {
     compute_cmdrow();
   }
-  msg("", 0);
-  redraw_cmdline = true;
+  // Avoid overwriting key prompt
+  if (!ccline.one_key) {
+    msg("", 0);
+    redraw_cmdline = true;
+  }
 }
 
 /// getcmdline() - accept a command line starting with firstc.
@@ -2764,11 +2785,13 @@ char *getcmdline(int firstc, int count, int indent, bool do_concat FUNC_ATTR_UNU
 /// @param[in]  xp_context  Type of expansion.
 /// @param[in]  xp_arg  User-defined expansion argument.
 /// @param[in]  highlight_callback  Callback used for highlighting user input.
+/// @param[in]  one_key  Return after one key press for button prompt.
+/// @param[in]  mouse_used  Set to true when returning after right mouse click.
 ///
 /// @return [allocated] Command line or NULL.
 char *getcmdline_prompt(const int firstc, const char *const prompt, const int hl_id,
                         const int xp_context, const char *const xp_arg,
-                        const Callback highlight_callback)
+                        const Callback highlight_callback, bool one_key, bool *mouse_used)
   FUNC_ATTR_WARN_UNUSED_RESULT FUNC_ATTR_MALLOC
 {
   const int msg_col_save = msg_col;
@@ -2789,11 +2812,14 @@ char *getcmdline_prompt(const int firstc, const char *const prompt, const int hl
   ccline.xp_arg = (char *)xp_arg;
   ccline.input_fn = (firstc == '@');
   ccline.highlight_callback = highlight_callback;
+  ccline.one_key = one_key;
+  ccline.mouse_used = mouse_used;
 
   int msg_silent_saved = msg_silent;
   msg_silent = 0;
 
   char *const ret = (char *)command_line_enter(firstc, 1, 0, false);
+  ccline.redraw_state = kCmdRedrawNone;
 
   if (did_save_ccline) {
     restore_cmdline(&save_ccline);
@@ -3142,8 +3168,9 @@ static bool color_cmdline(CmdlineInfo *colored_ccline)
 
 #define PRINT_ERRMSG(...) \
   do { \
+    msg_scroll = true; \
     msg_putchar('\n'); \
-    msg_printf_hl(HLF_E, __VA_ARGS__); \
+    smsg(HLF_E, __VA_ARGS__); \
     printed_errmsg = true; \
   } while (0)
   bool ret = true;
@@ -3422,8 +3449,7 @@ static void ui_ext_cmdline_show(CmdlineInfo *line)
   ui_call_cmdline_show(content, line->cmdpos,
                        cstr_as_string(charbuf),
                        cstr_as_string((line->cmdprompt)),
-                       line->cmdindent,
-                       line->level);
+                       line->cmdindent, line->level, line->hl_id);
   if (line->special_char) {
     charbuf[0] = line->special_char;
     ui_call_cmdline_special_char(cstr_as_string(charbuf),
@@ -4477,7 +4503,7 @@ static int open_cmdwin(void)
   invalidate_botline(curwin);
   if (ui_has(kUICmdline)) {
     ccline.redraw_state = kCmdRedrawNone;
-    ui_call_cmdline_hide(ccline.level);
+    ui_call_cmdline_hide(ccline.level, false);
   }
   redraw_later(curwin, UPD_SOME_VALID);
 
@@ -4790,7 +4816,7 @@ void get_user_input(const typval_T *const argvars, typval_T *const rettv, const 
   const int save_ex_normal_busy = ex_normal_busy;
   ex_normal_busy = 0;
   rettv->vval.v_string = getcmdline_prompt(secret ? NUL : '@', p, get_echo_hl_id(),
-                                           xp_type, xp_arg, input_callback);
+                                           xp_type, xp_arg, input_callback, false, NULL);
   ex_normal_busy = save_ex_normal_busy;
   callback_free(&input_callback);
 

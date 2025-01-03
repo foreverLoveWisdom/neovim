@@ -51,7 +51,6 @@
 #include "nvim/getchar.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
-#include "nvim/highlight.h"
 #include "nvim/highlight_defs.h"
 #include "nvim/highlight_group.h"
 #include "nvim/input.h"
@@ -2202,7 +2201,7 @@ static char *do_one_cmd(char **cmdlinep, int flags, cstack_T *cstack, LineGetter
           errormsg = _("E493: Backwards range given");
           goto doend;
         }
-        if (ask_yesno(_("Backwards range given, OK to swap"), false) != 'y') {
+        if (ask_yesno(_("Backwards range given, OK to swap")) != 'y') {
           goto doend;
         }
       }

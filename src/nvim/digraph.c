@@ -22,7 +22,6 @@
 #include "nvim/getchar.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
-#include "nvim/highlight.h"
 #include "nvim/highlight_defs.h"
 #include "nvim/keycodes.h"
 #include "nvim/mapping.h"
@@ -1715,6 +1714,7 @@ void listdigraphs(bool use_headers)
 {
   result_T previous = 0;
 
+  msg_ext_set_kind("list_cmd");
   msg_putchar('\n');
 
   const digr_T *dp = digraphdefault;

@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <uv.h>
 
 #include "auto/config.h"
 #include "klib/kvec.h"
@@ -47,6 +48,7 @@
 #include "nvim/errors.h"
 #include "nvim/eval.h"
 #include "nvim/eval/typval.h"
+#include "nvim/eval/typval_defs.h"
 #include "nvim/eval/vars.h"
 #include "nvim/eval/window.h"
 #include "nvim/ex_cmds_defs.h"
@@ -58,6 +60,7 @@
 #include "nvim/garray_defs.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
+#include "nvim/grid_defs.h"
 #include "nvim/highlight.h"
 #include "nvim/highlight_defs.h"
 #include "nvim/highlight_group.h"
@@ -74,6 +77,7 @@
 #include "nvim/memfile.h"
 #include "nvim/memline.h"
 #include "nvim/memory.h"
+#include "nvim/memory_defs.h"
 #include "nvim/message.h"
 #include "nvim/mouse.h"
 #include "nvim/move.h"
@@ -88,7 +92,6 @@
 #include "nvim/os/os.h"
 #include "nvim/os/os_defs.h"
 #include "nvim/path.h"
-#include "nvim/plines.h"
 #include "nvim/popupmenu.h"
 #include "nvim/pos_defs.h"
 #include "nvim/regexp.h"
@@ -104,7 +107,6 @@
 #include "nvim/terminal.h"
 #include "nvim/types_defs.h"
 #include "nvim/ui.h"
-#include "nvim/ui_defs.h"
 #include "nvim/undo.h"
 #include "nvim/undo_defs.h"
 #include "nvim/vim_defs.h"
@@ -531,8 +533,8 @@ static void set_string_default(OptIndex opt_idx, char *val, bool allocated)
 
 /// For an option value that contains comma separated items, find "newval" in
 /// "origval".  Return NULL if not found.
-static char *find_dup_item(char *origval, const char *newval, const size_t newvallen,
-                           uint32_t flags)
+static const char *find_dup_item(const char *origval, const char *newval, const size_t newvallen,
+                                 uint32_t flags)
   FUNC_ATTR_NONNULL_ARG(2)
 {
   if (origval == NULL) {
@@ -541,7 +543,7 @@ static char *find_dup_item(char *origval, const char *newval, const size_t newva
 
   int bs = 0;
 
-  for (char *s = origval; *s != NUL; s++) {
+  for (const char *s = origval; *s != NUL; s++) {
     if ((!(flags & kOptFlagComma) || s == origval || (s[-1] == ',' && !(bs & 1)))
         && strncmp(s, newval, newvallen) == 0
         && (!(flags & kOptFlagComma) || s[newvallen] == ',' || s[newvallen] == NUL)) {
@@ -725,7 +727,7 @@ void ex_set(exarg_T *eap)
 
 /// Copy the new string value into allocated memory for the option.
 /// Can't use set_option_direct(), because we need to remove the backslashes.
-static char *stropt_copy_value(char *origval, char **argp, set_op_T op,
+static char *stropt_copy_value(const char *origval, char **argp, set_op_T op,
                                uint32_t flags FUNC_ATTR_UNUSED)
 {
   char *arg = *argp;
@@ -772,7 +774,7 @@ static char *stropt_copy_value(char *origval, char **argp, set_op_T op,
 }
 
 /// Expand environment variables and ~ in string option value 'newval'.
-static char *stropt_expand_envvar(OptIndex opt_idx, char *origval, char *newval, set_op_T op)
+static char *stropt_expand_envvar(OptIndex opt_idx, const char *origval, char *newval, set_op_T op)
 {
   char *s = option_expand(opt_idx, newval);
   if (s == NULL) {
@@ -792,7 +794,7 @@ static char *stropt_expand_envvar(OptIndex opt_idx, char *origval, char *newval,
 
 /// Concatenate the original and new values of a string option, adding a "," if
 /// needed.
-static void stropt_concat_with_comma(char *origval, char *newval, set_op_T op, uint32_t flags)
+static void stropt_concat_with_comma(const char *origval, char *newval, set_op_T op, uint32_t flags)
 {
   int len = 0;
   int comma = ((flags & kOptFlagComma) && *origval != NUL && *newval != NUL);
@@ -818,7 +820,8 @@ static void stropt_concat_with_comma(char *origval, char *newval, set_op_T op, u
 
 /// Remove a value from a string option.  Copy string option value in "origval"
 /// to "newval" and then remove the string "strval" of length "len".
-static void stropt_remove_val(char *origval, char *newval, uint32_t flags, char *strval, int len)
+static void stropt_remove_val(const char *origval, char *newval, uint32_t flags, const char *strval,
+                              int len)
 {
   // Remove newval[] from origval[]. (Note: "len" has been set above
   // and is used here).
@@ -870,13 +873,13 @@ static void stropt_remove_dupflags(char *newval, uint32_t flags)
 ///     set {opt}={val}
 ///     set {opt}:{val}
 static char *stropt_get_newval(int nextchar, OptIndex opt_idx, char **argp, void *varp,
-                               char *origval, set_op_T *op_arg, uint32_t flags)
+                               const char *origval, set_op_T *op_arg, uint32_t flags)
 {
   char *arg = *argp;
   set_op_T op = *op_arg;
   char *save_arg = NULL;
   char *newval;
-  char *s = NULL;
+  const char *s = NULL;
 
   arg++;  // jump to after the '=' or ':'
 
@@ -1192,9 +1195,10 @@ static OptVal get_option_newval(OptIndex opt_idx, int opt_flags, set_prefix_T pr
     break;
   }
   case kOptValTypeString: {
-    char *oldval_str = oldval.data.string.data;
+    const char *oldval_str = oldval.data.string.data;
     // Get the new value for the option
-    char *newval_str = stropt_get_newval(nextchar, opt_idx, argp, varp, oldval_str, &op, flags);
+    const char *newval_str = stropt_get_newval(nextchar, opt_idx, argp, varp, oldval_str, &op,
+                                               flags);
     newval = CSTR_AS_OPTVAL(newval_str);
     break;
   }
@@ -1566,7 +1570,7 @@ char *find_shada_parameter(int type)
 /// These string options cannot be indirect!
 /// If "val" is NULL expand the current value of the option.
 /// Return pointer to NameBuff, or NULL when not expanded.
-static char *option_expand(OptIndex opt_idx, char *val)
+static char *option_expand(OptIndex opt_idx, const char *val)
 {
   // if option doesn't need expansion nothing to do
   if (!(options[opt_idx].flags & kOptFlagExpand) || is_option_hidden(opt_idx)) {
@@ -4390,7 +4394,7 @@ static int put_set(FILE *fd, char *cmd, OptIndex opt_idx, void *varp)
       return FAIL;
     }
 
-    char *value_str = value.data.string.data;
+    const char *value_str = value.data.string.data;
     char *buf = NULL;
     char *part = NULL;
 

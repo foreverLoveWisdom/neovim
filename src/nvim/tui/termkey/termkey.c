@@ -1,9 +1,9 @@
 #include <ctype.h>
 #include <errno.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
+#include "nvim/macros_defs.h"
 #include "nvim/mbyte.h"
 #include "nvim/memory.h"
 #include "nvim/tui/termkey/driver-csi.h"
@@ -13,9 +13,10 @@
 #include "nvim/tui/termkey/termkey_defs.h"
 
 #ifndef _WIN32
-# include <poll.h>
-# include <strings.h>
-# include <unistd.h>
+// Include these directly instead of <termios.h> which is system-dependent. #31704
+# include <poll.h>  // IWYU pragma: keep
+# include <strings.h>  // IWYU pragma: keep
+# include <unistd.h>  // IWYU pragma: keep
 #else
 # include <io.h>
 #endif
@@ -832,6 +833,9 @@ static TermKeyResult peekkey(TermKey *tk, TermKeyKey *key, int force, size_t *nb
     errno = EINVAL;
     return TERMKEY_RES_ERROR;
   }
+
+  // Press is the default event type.
+  key->event = TERMKEY_EVENT_PRESS;
 
 #ifdef DEBUG
   fprintf(stderr, "getkey(force=%d): buffer ", force);
